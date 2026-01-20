@@ -21,7 +21,7 @@ import (
 	"runtime/debug"
 	"time"
 
-	"github.com/go-piv/piv-go/piv"
+	"github.com/go-piv/piv-go/v2/piv"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/term"
 )
@@ -104,7 +104,7 @@ func runSetup(yk *piv.YubiKey) {
 	if _, err := rand.Read(key[:]); err != nil {
 		log.Fatal(err)
 	}
-	if err := yk.SetManagementKey(piv.DefaultManagementKey, key); err != nil {
+	if err := yk.SetManagementKey(piv.DefaultManagementKey, key[:]); err != nil {
 		log.Println("‼️  The default Management Key did not work")
 		log.Println("")
 		log.Println("If you know what you're doing, reset PIN, PUK, and")
@@ -113,8 +113,9 @@ func runSetup(yk *piv.YubiKey) {
 		log.Println("If you want to wipe all PIV keys and start fresh,")
 		log.Fatalln("use --really-delete-all-piv-keys ⚠️")
 	}
-	if err := yk.SetMetadata(key, &piv.Metadata{
-		ManagementKey: &key,
+	managementKey := key[:]
+	if err := yk.SetMetadata(key[:], &piv.Metadata{
+		ManagementKey: &managementKey,
 	}); err != nil {
 		log.Fatalln("Failed to store the Management Key on the device:", err)
 	}
@@ -137,7 +138,7 @@ func runSetup(yk *piv.YubiKey) {
 		log.Fatalln("use --really-delete-all-piv-keys ⚠️")
 	}
 
-	pub, err := yk.GenerateKey(key, piv.SlotAuthentication, piv.Key{
+	pub, err := yk.GenerateKey(key[:], piv.SlotAuthentication, piv.Key{
 		Algorithm:   piv.AlgorithmEC256,
 		PINPolicy:   piv.PINPolicyOnce,
 		TouchPolicy: piv.TouchPolicyAlways,
@@ -174,7 +175,7 @@ func runSetup(yk *piv.YubiKey) {
 	if err != nil {
 		log.Fatalln("Failed to parse certificate:", err)
 	}
-	if err := yk.SetCertificate(key, piv.SlotAuthentication, cert); err != nil {
+	if err := yk.SetCertificate(key[:], piv.SlotAuthentication, cert); err != nil {
 		log.Fatalln("Failed to store certificate:", err)
 	}
 
