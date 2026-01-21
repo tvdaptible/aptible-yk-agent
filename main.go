@@ -17,6 +17,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"net"
 	"os"
@@ -278,6 +279,7 @@ func (a *Agent) signers() ([]ssh.Signer, error) {
 	if err != nil {
 		return nil, err
 	}
+	go showNotificationWithDelay("Touch YubiKey after entering PIN when lights flash...", 2*time.Second)
 	priv, err := a.yk.PrivateKey(
 		piv.SlotAuthentication,
 		pk.(ssh.CryptoPublicKey).CryptoPublicKey(),
@@ -324,7 +326,7 @@ func (a *Agent) SignWithFlags(key ssh.PublicKey, data []byte, flags agent.Signat
 				a.touchNotification.Stop()
 				return
 			}
-			showNotification("Waiting for YubiKey touch...")
+			showNotification("Waiting for YubiKey touch for ssh connection...")
 		}()
 
 		alg := key.Type()
@@ -340,13 +342,57 @@ func (a *Agent) SignWithFlags(key ssh.PublicKey, data []byte, flags agent.Signat
 	return nil, fmt.Errorf("no private keys match the requested public key")
 }
 
+func terminalNotifierBinary() (string, error) {
+	cellarBytes, err := exec.Command("brew", "--cellar", "terminal-notifier").CombinedOutput()
+	if err != nil {
+		return "", err
+	}
+	cellar := strings.TrimSpace(string(cellarBytes))
+	terminalNotifierBin := ""
+	terminalNotifierBinSuffix := "terminal-notifier.app/Contents/MacOS/terminal-notifier"
+	filepath.WalkDir(cellar, func(path string, d fs.DirEntry, err error) error {
+		if strings.HasSuffix(path, terminalNotifierBinSuffix) {
+			terminalNotifierBin = path
+			return fs.SkipAll
+		}
+		return nil
+	})
+	if terminalNotifierBin == "" {
+		return "", fmt.Errorf("could not find terminal-notifier binary in cellar=%q search suffix=%q", cellar, terminalNotifierBinSuffix)
+	}
+	return terminalNotifierBin, nil
+}
+
+func showNotificationWithDelay(message string, delay time.Duration) {
+	if delay > 0 {
+		log.Printf("Waiting %s to show %q notification...\n", delay, message)
+		time.Sleep(delay)
+	}
+	showNotification(message)
+}
+
 func showNotification(message string) {
 	switch runtime.GOOS {
 	case "darwin":
 		message = strings.ReplaceAll(message, `\`, `\\`)
 		message = strings.ReplaceAll(message, `"`, `\"`)
-		appleScript := `display notification "%s" with title "yubikey-agent"`
-		exec.Command("osascript", "-e", fmt.Sprintf(appleScript, message)).Run()
+		terminalNotifierBin, err := terminalNotifierBinary()
+		if err != nil {
+			log.Printf("Failed to find terminal-notifier binary: %v\n", err)
+			return
+		}
+		if err := exec.Command(
+			terminalNotifierBin,
+			"-message",message,
+			"-title", "aptible-yk-agent",
+			"-group", "aptible-yk-agent",
+			"-ignoreDnD",
+			"-sound", "default",
+			"-appIcon", "https://raw.github.com/aptible/straptible/master/lib/straptible/rails/templates/public.api/icon-60px.png",
+			"-contentIcon", "https://raw.github.com/aptible/straptible/master/lib/straptible/rails/templates/public.api/icon-60px.png",
+		).Run(); err != nil {
+			log.Printf("Failed to show notification: %v\n", err)
+		}
 	case "linux":
 		exec.Command("notify-send", "-i", "dialog-password", "yubikey-agent", message).Run()
 	}
