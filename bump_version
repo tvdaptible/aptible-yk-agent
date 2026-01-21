@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -eo pipefail
+
+if [ "$(git branch --show-current)" != "main" ]; then
+  echo "Error: must be on main branch to bump version"
+  exit 1
+fi
+git pull
+aptible_versions=$(git tag --list | grep aptible | wc -l)
+prev_version="v0.1.6-aptible.$((aptible_versions))"
+new_version="v0.1.6-aptible.$((aptible_versions + 1))"
+echo "Bumping version ${prev_version} -to-> ${new_version}"
+git tag -s -m "${new_version}" "${new_version}" HEAD
+git push --tags
