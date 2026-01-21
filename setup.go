@@ -8,8 +8,7 @@ package main
 
 import (
 	"bytes"
-	"crypto/ecdsa"
-	"crypto/elliptic"
+	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
@@ -139,7 +138,7 @@ func runSetup(yk *piv.YubiKey) {
 	}
 
 	pub, err := yk.GenerateKey(key[:], piv.SlotAuthentication, piv.Key{
-		Algorithm:   piv.AlgorithmEC256,
+		Algorithm:   piv.AlgorithmEd25519,
 		PINPolicy:   piv.PINPolicyOnce,
 		TouchPolicy: piv.TouchPolicyAlways,
 	})
@@ -147,7 +146,7 @@ func runSetup(yk *piv.YubiKey) {
 		log.Fatalln("Failed to generate key:", err)
 	}
 
-	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	publicEd, priv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		log.Fatalln("Failed to generate parent key:", err)
 	}
@@ -156,7 +155,7 @@ func runSetup(yk *piv.YubiKey) {
 			Organization:       []string{"yubikey-agent"},
 			OrganizationalUnit: []string{Version},
 		},
-		PublicKey: priv.Public(),
+		PublicKey: publicEd,
 	}
 	template := &x509.Certificate{
 		Subject: pkix.Name{
