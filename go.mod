@@ -1,4 +1,4 @@
-module filippo.io/yubikey-agent
+module github.com/tvdaptible/aptible-yk-agent
 
 go 1.19
 
