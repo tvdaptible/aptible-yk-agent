@@ -8,8 +8,10 @@ package main
 
 import (
 	"bytes"
+	"crypto"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/rsa"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"errors"
@@ -137,8 +139,13 @@ func runSetup(yk *piv.YubiKey) {
 		log.Fatalln("use --really-delete-all-piv-keys ⚠️")
 	}
 
+	algo := piv.AlgorithmEd25519
+	if !firmwareSupportsEd25519(yk) {
+		log.Println("Yubikey firmware does not support ed25519 keys, falling back to rsa-248")
+		algo = piv.AlgorithmRSA2048
+	}
 	pub, err := yk.GenerateKey(key[:], piv.SlotAuthentication, piv.Key{
-		Algorithm:   piv.AlgorithmEd25519,
+		Algorithm:   algo,
 		PINPolicy:   piv.PINPolicyOnce,
 		TouchPolicy: piv.TouchPolicyAlways,
 	})
@@ -146,7 +153,7 @@ func runSetup(yk *piv.YubiKey) {
 		log.Fatalln("Failed to generate key:", err)
 	}
 
-	publicEd, priv, err := ed25519.GenerateKey(rand.Reader)
+	publicKey, privKey, err := generateKey(algo)
 	if err != nil {
 		log.Fatalln("Failed to generate parent key:", err)
 	}
@@ -155,7 +162,7 @@ func runSetup(yk *piv.YubiKey) {
 			Organization:       []string{"yubikey-agent"},
 			OrganizationalUnit: []string{Version},
 		},
-		PublicKey: publicEd,
+		PublicKey: publicKey,
 	}
 	template := &x509.Certificate{
 		Subject: pkix.Name{
@@ -166,7 +173,7 @@ func runSetup(yk *piv.YubiKey) {
 		SerialNumber: randomSerialNumber(),
 		KeyUsage:     x509.KeyUsageKeyAgreement | x509.KeyUsageDigitalSignature,
 	}
-	certBytes, err := x509.CreateCertificate(rand.Reader, template, parent, pub, priv)
+	certBytes, err := x509.CreateCertificate(rand.Reader, template, parent, pub, privKey)
 	if err != nil {
 		log.Fatalln("Failed to generate certificate:", err)
 	}
@@ -194,6 +201,23 @@ func runSetup(yk *piv.YubiKey) {
 	fmt.Println(`set the SSH_AUTH_SOCK environment variable, and test with "ssh-add -L"`)
 	fmt.Println("")
 	fmt.Println("💭 Remember: everything breaks, have a backup plan for when this YubiKey does.")
+}
+
+func firmwareSupportsEd25519(yk *piv.YubiKey) bool {
+	return yk.Version().Major >= 5 && yk.Version().Minor >= 7
+}
+
+func generateKey(algo piv.Algorithm) (crypto.PublicKey, crypto.PrivateKey, error) {
+	switch algo {
+	case piv.AlgorithmEd25519:
+		publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+		return publicKey, privateKey, err
+	case piv.AlgorithmRSA2048:
+		privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+		return &privateKey.PublicKey, privateKey, err
+	default:
+		return nil, nil, fmt.Errorf("unsupported algorithm piv algorithm: %v", algo)
+	}
 }
 
 func randomSerialNumber() *big.Int {
